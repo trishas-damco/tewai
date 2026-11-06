@@ -81,6 +81,23 @@ function GuidelineLibrary() {
   const [createdPack, setCreatedPack] = useState(null);
   const [drafting, setDrafting] = useState({});
 
+  /** A pack is processing while this session drafts it, or while the server says so. */
+  const isProcessing = (pack) =>
+    Boolean(drafting[pack.pack_id]) || pack.ingestion_status === "running";
+
+  const anyRunning = packs.some((pack) => pack.ingestion_status === "running");
+  useEffect(() => {
+    if (!anyRunning) return undefined;
+    // Survives a page reload mid-ingestion: keep the row current until it ends.
+    const timer = setInterval(() => {
+      guidelineService
+        .listPacks()
+        .then((data) => setPacks(data))
+        .catch(() => {});
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [anyRunning]);
+
   const loadPacks = (isRefresh = false) => {
     (isRefresh ? setRefreshing : setLoading)(true);
     setError(null);
@@ -290,17 +307,17 @@ function GuidelineLibrary() {
                     <TableCell align="right">{pack.rule_count ?? 0}</TableCell>
                     <TableCell>
                       <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-                        <Chip
-                          label={STATUS_LABELS[pack.status] || pack.status}
-                          size="small"
-                          sx={{ ...getStatusSx(pack.status, theme), fontWeight: 500 }}
-                        />
-                        {drafting[pack.pack_id] && (
+                        {isProcessing(pack) ? (
                           <Chip
+                            label="Processing"
                             size="small"
-                            variant="outlined"
-                            color="info"
-                            label="Creating rules…"
+                            sx={{ color: "#ffffff", bgcolor: theme.palette.info.main }}
+                          />
+                        ) : (
+                          <Chip
+                            label={STATUS_LABELS[pack.status] || pack.status}
+                            size="small"
+                            sx={{ ...getStatusSx(pack.status, theme), fontWeight: 500 }}
                           />
                         )}
                       </Box>
@@ -309,9 +326,9 @@ function GuidelineLibrary() {
                       <Button
                         size="small"
                         onClick={() => openReview(pack)}
-                        disabled={Boolean(drafting[pack.pack_id])}
+                        disabled={isProcessing(pack)}
                       >
-                        {drafting[pack.pack_id] ? "Creating rules…" : "Open review"}
+                        {isProcessing(pack) ? "Processing…" : "Open review"}
                       </Button>
                     </TableCell>
                   </TableRow>

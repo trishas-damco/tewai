@@ -339,6 +339,27 @@ function RuleReview() {
   );
   const canPublish = rules.length > 0 && reviewedCount === rules.length;
 
+  // Rule creation starts at upload; this screen reflects that, never triggers it.
+  const processing = Boolean(drafting) || pack?.ingestion_status === "running";
+  const ingestionFailed = pack?.ingestion_status === "failed";
+  const ingestionStatus = pack?.ingestion_status;
+
+  useEffect(() => {
+    if (ingestionStatus !== "running" || rules.length > 0) {
+      return undefined;
+    }
+    const timer = setInterval(() => {
+      guidelineService
+        .getPack(packId)
+        .then(({ pack: fresh, rules: freshRules }) => {
+          setPack(fresh);
+          setRules(freshRules || []);
+        })
+        .catch(() => {});
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [ingestionStatus, rules.length, packId]);
+
   const updateRule = (ruleId, changes) => {
     setRules((prev) =>
       prev.map((rule) => (rule.rule_id === ruleId ? { ...rule, ...changes } : rule)),
@@ -435,11 +456,11 @@ function RuleReview() {
     }
   };
 
-  const handleDraftRules = async () => {
+  const handleDraftRules = async (force = false) => {
     setDrafting(true);
     setActionError(null);
     try {
-      const summary = await guidelineService.ingestPack(packId);
+      const summary = await guidelineService.ingestPack(packId, { force });
       const reloaded = await guidelineService.getPack(packId);
       setPack(reloaded.pack);
       setRules(reloaded.rules || []);
@@ -615,21 +636,45 @@ function RuleReview() {
         <Box sx={{ flex: 1, overflowY: "auto", pr: 0.5 }}>
           {rules.length === 0 ? (
             <Paper variant="outlined" sx={{ p: 3, textAlign: "center" }}>
-              <Typography variant="subtitle2" gutterBottom>
-                No rules drafted yet
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Each page is sent to the model once. Every rule is checked against the
-                page it cites before it appears here, so a bad citation never reaches
-                review.
-              </Typography>
-              <Button
-                variant="contained"
-                disabled={drafting}
-                onClick={handleDraftRules}
-              >
-                {drafting ? "Drafting…" : "Draft rules from the PDF"}
-              </Button>
+              {processing ? (
+                <>
+                  <CircularProgress size={28} sx={{ mb: 1.5 }} />
+                  <Typography variant="subtitle2" gutterBottom>
+                    Processing…
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Rules are being drafted from the uploaded PDF. Each page is sent to
+                    the model once and every rule is checked against the page it cites
+                    before it appears here. This can take a couple of minutes.
+                  </Typography>
+                </>
+              ) : ingestionFailed ? (
+                <>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Rule creation failed
+                  </Typography>
+                  <Alert severity="error" sx={{ mb: 2, textAlign: "left" }}>
+                    {pack?.ingestion_error || "The drafting job did not finish."}
+                  </Alert>
+                  <Button
+                    variant="contained"
+                    disabled={drafting}
+                    onClick={() => handleDraftRules(true)}
+                  >
+                    {drafting ? "Retrying…" : "Retry rule creation"}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Typography variant="subtitle2" gutterBottom>
+                    No checkable rules found
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Drafting completed but this document produced no rules that can be
+                    checked from the claim file. Review the PDF, or retire this version.
+                  </Typography>
+                </>
+              )}
             </Paper>
           ) : (
             rules.map((rule) => (
