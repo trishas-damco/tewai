@@ -22,6 +22,7 @@ import {
   Home as HomeIcon,
   Assessment as AssessmentIcon,
   MenuBook as MenuBookIcon,
+  LibraryBooks as LibraryBooksIcon,
 } from "@mui/icons-material";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useContext, useState, useCallback } from "react";
@@ -75,6 +76,12 @@ const menuItems = [
     text: "Rule Book",
     icon: <MenuBookIcon />,
     path: "/rulebook",
+  },
+  {
+    text: "Guideline Library",
+    icon: <LibraryBooksIcon />,
+    path: "/guideline-library",
+    roles: ["Admin", "Developer"],
   },
   {
     text: "User Management",

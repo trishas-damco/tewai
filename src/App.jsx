@@ -4,7 +4,7 @@ import {
   Route,
   Navigate,
 } from "react-router-dom";
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
@@ -16,15 +16,23 @@ import UserManagement from "./pages/user-management/UserManagement";
 import UserForm from "./pages/user-management/UserForm";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
+import Box from "@mui/material/Box";
+import CircularProgress from "@mui/material/CircularProgress";
 import { UserProvider, useUser } from "./contexts/UserContext";
 import { ColorModeContext } from "./contexts/ColorModeContext";
 import { useSecurity } from "./hooks/useSecurity";
 import SecurityStyles from "./components/SecurityStyles";
 import ReportAnalysisPage from "./pages/ReportAnalysisPage";
-import Analytics from "./pages/Analytics";
 import PropertyFiles from "./pages/PropertyFiles";
 import PropertySettings from "./pages/PropertySettings";
 import RuleBook from "./pages/RuleBook";
+import GuidelineLibrary from "./pages/guidelines/GuidelineLibrary";
+import RuleReview from "./pages/guidelines/RuleReview";
+
+// Analytics pulls in recharts, xlsx and ag-grid (~900 kB). Loading it lazily
+// keeps those out of the entry chunk without hand-written manualChunks, which
+// break on MUI/recharts circular imports.
+const Analytics = lazy(() => import("./pages/Analytics"));
 
 function AppContent() {
   const [mode, setMode] = useState("light");
@@ -244,7 +252,15 @@ function AppContent() {
               path="/analytics"
               element={
                 <AuthLayout>
-                  <Analytics />
+                  <Suspense
+                    fallback={
+                      <Box sx={{ display: "flex", justifyContent: "center", p: 6 }}>
+                        <CircularProgress />
+                      </Box>
+                    }
+                  >
+                    <Analytics />
+                  </Suspense>
                 </AuthLayout>
               }
             />
@@ -269,6 +285,22 @@ function AppContent() {
               element={
                 <AuthLayout>
                   <RuleBook />
+                </AuthLayout>
+              }
+            />
+            <Route
+              path="/guideline-library"
+              element={
+                <AuthLayout>
+                  <GuidelineLibrary />
+                </AuthLayout>
+              }
+            />
+            <Route
+              path="/guideline-library/:packId/review"
+              element={
+                <AuthLayout>
+                  <RuleReview />
                 </AuthLayout>
               }
             />

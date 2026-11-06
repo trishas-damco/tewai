@@ -2,8 +2,8 @@ import { memo } from 'react';
 import { Box } from '@mui/material';
 import PDFViewer from './PDFViewer';
 
-// memo prevents re-render (and re-load of PDF) unless pdfUrl actually changes
-const PDFViewerContent = memo(function PDFViewerContent({ data }) {
+// memo prevents re-render (and re-load of PDF) unless fileUrl/page change
+const PDFViewerContent = memo(function PDFViewerContent({ fileUrl, page }) {
   return (
     <Box
       sx={{
@@ -13,11 +13,9 @@ const PDFViewerContent = memo(function PDFViewerContent({ data }) {
         overflow: 'hidden',
       }}
     >
-      <PDFViewer file={data.pdfUrl} />
+      <PDFViewer file={fileUrl} page={page} />
     </Box>
   );
 });
-
-
 
 export default PDFViewerContent;

@@ -1,8 +1,10 @@
-import { memo, useMemo } from 'react';
+import { memo, useEffect, useMemo } from 'react';
 import { Viewer, Worker } from '@react-pdf-viewer/core';
+import { pageNavigationPlugin } from '@react-pdf-viewer/page-navigation';
 import { searchPlugin } from '@react-pdf-viewer/search';
 import { toolbarPlugin } from '@react-pdf-viewer/toolbar';
 import '@react-pdf-viewer/core/lib/styles/index.css';
+import '@react-pdf-viewer/page-navigation/lib/styles/index.css';
 import '@react-pdf-viewer/search/lib/styles/index.css';
 import '@react-pdf-viewer/toolbar/lib/styles/index.css';
 import { Box, useTheme } from '@mui/material';
@@ -10,11 +12,12 @@ import { Box, useTheme } from '@mui/material';
 // ── Worker URL is a constant — never changes, never re-creates the worker
 const WORKER_URL = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 
-const PDFViewer = memo(function PDFViewer({ file }) {
+const PDFViewer = memo(function PDFViewer({ file, page }) {
   const theme = useTheme();
 
   // ── Memoize plugins so they are NOT re-created on every render
   const toolbarPluginInstance = useMemo(() => toolbarPlugin(), []);
+  const pageNavigationPluginInstance = useMemo(() => pageNavigationPlugin(), []);
   const searchPluginInstance = useMemo(
     () =>
       searchPlugin({
@@ -27,6 +30,14 @@ const PDFViewer = memo(function PDFViewer({ file }) {
       }),
     []
   );
+
+  // ── Jump when the parent asks for a specific page (1-based).
+  //    The plugin uses 0-based indexes. Re-running on `file` change makes a
+  //    second jump work even when the page number is unchanged.
+  useEffect(() => {
+    if (!page) return;
+    pageNavigationPluginInstance.jumpToPage(page - 1);
+  }, [page, file, pageNavigationPluginInstance]);
 
   const { renderDefaultToolbar, Toolbar } = toolbarPluginInstance;
 
@@ -41,8 +52,8 @@ const PDFViewer = memo(function PDFViewer({ file }) {
   );
 
   const plugins = useMemo(
-    () => [searchPluginInstance, toolbarPluginInstance],
-    [searchPluginInstance, toolbarPluginInstance]
+    () => [searchPluginInstance, toolbarPluginInstance, pageNavigationPluginInstance],
+    [searchPluginInstance, toolbarPluginInstance, pageNavigationPluginInstance]
   );
 
   return (
@@ -82,6 +93,11 @@ const PDFViewer = memo(function PDFViewer({ file }) {
             fileUrl={file}
             plugins={plugins}
             theme={theme.palette.mode}
+            onDocumentLoad={() => {
+              // The effect above can fire before pages exist; jump once more
+              // when the document is ready so an initial page target is honoured.
+              if (page) pageNavigationPluginInstance.jumpToPage(page - 1);
+            }}
             // Render pages progressively as they load instead of waiting
             // for the entire document
             renderLoader={(percentages) => (

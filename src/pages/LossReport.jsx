@@ -10,9 +10,10 @@ import {
   Tab,
   Divider,
   Tooltip,
-  Select,
+Select,
   MenuItem,
   IconButton,
+  Alert,
 } from "@mui/material";
 import {
   ArrowBack as ArrowBackIcon,
@@ -75,6 +76,16 @@ function LossReport() {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfKey, setPdfKey] = useState(0);
   const [pdfLinkLoading, setPdfLinkLoading] = useState(false);
+  /** Guideline PDF shown in the left pane instead of the claim document. */
+  const [guidelineDoc, setGuidelineDoc] = useState(null);
+  /** 1-based page the left viewer should jump to. */
+  const [leftPage, setLeftPage] = useState(1);
+  const [guidelineLoading, setGuidelineLoading] = useState(false);
+  /** Non-fatal notice for the guideline pane; keeps the claim PDF visible. */
+  const [guidelineError, setGuidelineError] = useState(null);
+
+  /** Guideline PDF takes precedence over the claim document in the left pane. */
+  const activePdfUrl = guidelineDoc?.url || data?.pdfUrl;
 
   useEffect(() => {
     const fetchReportData = async () => {
@@ -153,8 +164,8 @@ function LossReport() {
 
   // ── Open PDF blob URL directly in a new browser tab
   const handleOpenPdfNewTab = () => {
-    if (data?.pdfUrl) {
-      window.open(data.pdfUrl, "_blank", "noopener,noreferrer");
+    if (activePdfUrl) {
+      window.open(activePdfUrl, "_blank", "noopener,noreferrer");
     }
   };
 
@@ -185,6 +196,8 @@ function LossReport() {
       setPdfLoading(true);
       setError(null);
       setSelectedFile(fileName);
+      setGuidelineDoc(null);
+      setLeftPage(1);
 
       // Use cache if available
       if (pdfBlobCache.has(cacheKey)) {
@@ -230,6 +243,66 @@ function LossReport() {
     }
   };
 
+  /** Show a claim document in the left pane, at an optional page. */
+  const openClaimDocument = async (fileName, page = 1) => {
+    if (fileName && fileName !== selectedFile) {
+      await handleFileSelect(fileName);
+    } else {
+      setGuidelineDoc(null);
+    }
+    setLeftPage(page);
+  };
+
+  /** Show a carrier guideline PDF in the left pane, at an optional page. */
+  const openGuidelineDocument = async (documentId, page = 1, packId) => {
+    if (!documentId) return;
+    const cacheKey = `guideline_${documentId}`;
+
+    setGuidelineLoading(true);
+    setError(null);
+    setGuidelineError(null);
+    setPdfLinkLoading(true);
+
+    try {
+      if (pdfBlobCache.has(cacheKey)) {
+        setGuidelineDoc({ url: pdfBlobCache.get(cacheKey), name: `Guideline ${documentId}` });
+        setLeftPage(page);
+        return;
+      }
+
+      const params = new URLSearchParams({ document_id: documentId });
+      if (packId) params.set("pack_id", packId);
+
+      const response = await fetch(
+        `${import.meta.env.VITE_API_BASE_URL}/guideline_document_pdf?${params.toString()}`,
+        {
+          method: "GET",
+          headers: {
+            Accept: "application/pdf",
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      if (!response.ok) throw new Error("Failed to fetch guideline PDF");
+
+      const url = URL.createObjectURL(await response.blob());
+      pdfBlobCache.set(cacheKey, url);
+      setGuidelineDoc({ url, name: `Guideline ${documentId}` });
+      setLeftPage(page);
+    } catch (err) {
+      console.error("Error fetching guideline PDF:", err);
+      // The endpoint lands with T13. Until then, say so without hiding the
+      // claim document that is already open.
+      setGuidelineError(
+        "Guideline PDF is not available yet — the document endpoint ships with the backend. The claim stays open on the left.",
+      );
+    } finally {
+      setGuidelineLoading(false);
+      setPdfLinkLoading(false);
+    }
+  };
+
   const renderPDFViewer = () => {
     if (error) {
       return (
@@ -239,7 +312,7 @@ function LossReport() {
       );
     }
 
-    if (!data?.pdfUrl) {
+    if (!activePdfUrl) {
       return (
         <Typography color="text.secondary" align="center">
           No PDF file available
@@ -262,7 +335,11 @@ function LossReport() {
           </Box>
         }
       >
-        <PDFViewerContent key={pdfKey} data={data} />
+        <PDFViewerContent
+          key={`${pdfKey}_${guidelineDoc ? "guideline" : "claim"}_${activePdfUrl || ""}`}
+          fileUrl={activePdfUrl}
+          page={leftPage}
+        />
       </Suspense>
     );
   };
@@ -345,9 +422,21 @@ function LossReport() {
                 }}
               >
                 <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                  Loss Report
+                  {guidelineDoc ? "Guideline" : "Loss Report"}
                 </Typography>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                  {guidelineDoc && (
+                    <Button
+                      size="small"
+                      startIcon={<ArrowBackIcon fontSize="small" />}
+                      onClick={() => {
+                        setGuidelineDoc(null);
+                        setLeftPage(1);
+                      }}
+                    >
+                      Back to claim
+                    </Button>
+                  )}
                   {isPropertyFiles && hasFileOptions && (
                     <Select
                       size="small"
@@ -378,7 +467,7 @@ function LossReport() {
                       <IconButton
                         size="small"
                         onClick={handleOpenPdfNewTab}
-                        disabled={!data?.pdfUrl || loading || pdfLoading}
+                        disabled={!activePdfUrl || loading || pdfLoading || guidelineLoading}
                         sx={{ color: "text.secondary" }}
                       >
                         <OpenInNewIcon fontSize="small" />
@@ -389,6 +478,16 @@ function LossReport() {
               </Box>
 
               <Divider sx={{ mb: 1, flexShrink: 0 }} />
+
+              {guidelineError && (
+                <Alert
+                  severity="info"
+                  sx={{ mb: 1, flexShrink: 0 }}
+                  onClose={() => setGuidelineError(null)}
+                >
+                  {guidelineError}
+                </Alert>
+              )}
 
               {/* Scrollable PDF content */}
               <Box sx={{ flex: 1, overflow: "auto" }}>
@@ -477,10 +576,12 @@ function LossReport() {
                 <ReportAnalysis
                   reportId={data?.report_id}
                   prelim_folder={data?.prelim_folder}
-                  pdfUrl={data?.pdfUrl}
+                  pdfUrl={activePdfUrl}
                   ruleBookModel={isPropertyFiles ? "property" : data?.prelim_folder ? "prelim" : "flood"}
                   onPageLinkLoadStart={() => setPdfLinkLoading(true)}
                   onPageLinkLoadEnd={() => setPdfLinkLoading(false)}
+                  onOpenClaimPage={openClaimDocument}
+                  onOpenGuidelinePage={openGuidelineDocument}
                 />
               </Box>
             </Box>

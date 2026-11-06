@@ -17,6 +17,8 @@ import {
   DialogActions,
   Tooltip,
   useMediaQuery,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
@@ -33,6 +35,8 @@ import ruleBookService from '../services/ruleBookService';
 import GenerateGuidanceReport from '../components/GenerateGuidanceReport';
 import SuccessPopup from '../components/SuccessPopup';
 import { UserRoleContext } from '../components/layout/AuthLayout';
+import { useUser } from '../contexts/UserContext';
+import GuidelineResults from '../components/guidelines/GuidelineResults';
 import { useTheme } from '@mui/material/styles';
 
 const FlagType = {
@@ -180,7 +184,7 @@ function describeOpeningStatementNetworkFailure(err) {
 /** Module-level cache: cacheKey → blob URL. Persists across re-renders. */
 const pdfPageCache = new Map();
 
-function ReportAnalysis({ reportId, prelim_folder, pdfUrl, ruleBookModel, onPageLinkLoadStart, onPageLinkLoadEnd }) {
+function ReportAnalysis({ reportId, prelim_folder, pdfUrl, ruleBookModel, onPageLinkLoadStart, onPageLinkLoadEnd, onOpenClaimPage, onOpenGuidelinePage }) {
   console.log('ReportAnalysis props:', { reportId, prelim_folder, pdfUrl, ruleBookModel });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -199,7 +203,37 @@ function ReportAnalysis({ reportId, prelim_folder, pdfUrl, ruleBookModel, onPage
   /** { [type]: entry } for whichever rules have a published rule book entry. */
   const [ruleBookMap, setRuleBookMap] = useState({});
   const userRole = useContext(UserRoleContext);
+  const { user } = useUser();
   const theme = useTheme();
+
+  // ── Property rules vs Carrier guidelines ────────────────────────────────
+  // POC runs in shadow mode: the guideline view is Admin/Developer only.
+  // The last view is remembered per user; property rules is the fallback.
+  const guidelineViewKey = `guidelineView:${user?.user_id || user?.username || 'anon'}`;
+  const [analysisView, setAnalysisView] = useState(() => {
+    try {
+      return localStorage.getItem(guidelineViewKey) === 'guidelines'
+        ? 'guidelines'
+        : 'rules';
+    } catch {
+      return 'rules';
+    }
+  });
+  const canSeeGuidelines =
+    ruleBookModel === 'property' &&
+    (userRole === 'Admin' || userRole === 'Developer');
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(guidelineViewKey, analysisView);
+    } catch {
+      // Storage can be unavailable (private mode); the default view still works.
+    }
+  }, [analysisView, guidelineViewKey]);
+
+  const handleAnalysisViewChange = (_, nextView) => {
+    if (nextView) setAnalysisView(nextView);
+  };
 
   // Fetch the rule book once (cached in ruleBookService) as a type -> entry
   // lookup scoped to this claim's model, so the per-question info icon needs
@@ -599,15 +633,40 @@ function ReportAnalysis({ reportId, prelim_folder, pdfUrl, ruleBookModel, onPage
           }}
         >
           {/* Title row */}
-          <Box>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 1,
+              flexWrap: 'wrap',
+            }}
+          >
             <Typography variant="body2" color="text.secondary">
               Detailed analysis of the loss report based on key questions and
               findings
             </Typography>
+
+            {canSeeGuidelines && (
+              <ToggleButtonGroup
+                size="small"
+                exclusive
+                value={analysisView}
+                onChange={handleAnalysisViewChange}
+                aria-label="Analysis view"
+              >
+                <ToggleButton value="rules" sx={{ textTransform: 'none', px: 1.5 }}>
+                  Property rules
+                </ToggleButton>
+                <ToggleButton value="guidelines" sx={{ textTransform: 'none', px: 1.5 }}>
+                  Carrier guidelines
+                </ToggleButton>
+              </ToggleButtonGroup>
+            )}
           </Box>
 
           {/* Action buttons — wrap so they never overflow the panel */}
-          {userRole !== 'Adjuster' && (
+          {userRole !== 'Adjuster' && analysisView === 'rules' && (
             <Box
               sx={{
                 display: 'flex',
@@ -647,9 +706,16 @@ function ReportAnalysis({ reportId, prelim_folder, pdfUrl, ruleBookModel, onPage
           )}
         </Box>
 
-        {/* ── Scrollable accordion list ── */}
+        {/* ── Scrollable content: property rules or carrier guidelines ── */}
         <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-          {analysisData.map((section, index) => {
+          {analysisView === 'guidelines' ? (
+            <GuidelineResults
+              reportId={reportId}
+              onOpenClaimPage={onOpenClaimPage}
+              onOpenGuidelinePage={onOpenGuidelinePage}
+            />
+          ) : (
+            analysisData.map((section, index) => {
             const hasNoMatch = section.items.some(
               (item) => item.flag === FlagType.NO_MATCH
             );
@@ -981,7 +1047,8 @@ function ReportAnalysis({ reportId, prelim_folder, pdfUrl, ruleBookModel, onPage
                 </AccordionDetails>
               </Accordion>
             );
-          })}
+          })
+          )}
         </Box>
       </Paper>
 
