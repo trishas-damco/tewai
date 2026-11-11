@@ -11,9 +11,11 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  IconButton,
   MenuItem,
   Paper,
   Snackbar,
+  Switch,
   TextField,
   Tooltip,
   Typography,
@@ -22,11 +24,14 @@ import {
   ArrowBack as ArrowBackIcon,
   Check as CheckIcon,
   Close as CloseIcon,
+  DeleteOutline as DeleteOutlineIcon,
   Edit as EditIcon,
+  OpenInNew as OpenInNewIcon,
   PictureAsPdf as PictureAsPdfIcon,
   Save as SaveIcon,
 } from "@mui/icons-material";
 import guidelineService from "../../services/guidelineService";
+import PDFViewer from "../PDFViewer";
 
 const STATUS_SX = {
   approved: {
@@ -42,6 +47,29 @@ const STATUS_SX = {
 };
 
 const CHECK_TYPES = ["fixed", "judgement", "documentation"];
+
+// Backend evidence tokens mapped to the document a reviewer actually opens.
+// Several tokens belong to one document, so the chip lists documents, not keys.
+const NEEDS_DOCUMENT = {
+  estimate_line_items: "Estimate report",
+  roof_line_items: "Estimate report",
+  cabinet_line_items: "Estimate report",
+  hvac_line_items: "Estimate report",
+  window_line_items: "Estimate report",
+  glr_text: "GLR",
+  photo_captions: "Photosheet report",
+  photo_damage_json: "Photosheet report",
+  photo_report: "Photosheet report",
+};
+
+function needsLabel(requires) {
+  const documents = [
+    ...new Set(
+      (requires || []).map((token) => NEEDS_DOCUMENT[token]).filter(Boolean),
+    ),
+  ];
+  return documents.length ? `needs: ${documents.join(" + ")}` : null;
+}
 
 const CHECK_TYPE_HELP = {
   fixed: "Exact calculation from the pack's thresholds. No AI, so the same file always gives the same answer.",
@@ -60,7 +88,9 @@ function RuleCard({
   onSave,
   onApprove,
   onReject,
+  onDelete,
   onOpenSource,
+  onToggleEnabled,
   busy,
 }) {
   const statusMeta = STATUS_SX[rule.status] || STATUS_SX.draft;
@@ -157,11 +187,11 @@ function RuleCard({
                 sx={{ textTransform: "capitalize" }}
               />
             ))}
-            {rule.applies_to?.requires?.length > 0 && (
+            {needsLabel(rule.applies_to?.requires) && (
               <Chip
                 size="small"
                 variant="outlined"
-                label={`needs: ${rule.applies_to.requires.join(", ")}`}
+                label={needsLabel(rule.applies_to?.requires)}
               />
             )}
           </Box>
@@ -192,6 +222,15 @@ function RuleCard({
         <Box sx={{ display: "flex", gap: 0.5 }}>
           {isEditing ? (
             <>
+              <Button
+                size="small"
+                color="error"
+                startIcon={<DeleteOutlineIcon />}
+                onClick={onDelete}
+                disabled={busy}
+              >
+                Delete
+              </Button>
               <Button size="small" onClick={onCancelEdit} disabled={busy}>
                 Cancel
               </Button>
@@ -217,35 +256,39 @@ function RuleCard({
                   Edit
                 </Button>
               </Tooltip>
-              <Button
-                size="small"
-                color="error"
-                startIcon={<CloseIcon />}
-                onClick={onReject}
-                disabled={busy}
-              >
-                Reject
-              </Button>
-              <Button
-                size="small"
-                variant="contained"
-                startIcon={<CheckIcon />}
-                onClick={onApprove}
-                disabled={busy || rule.status === "approved"}
-                sx={{
-                  // Matches the "Match" flag: success.main with white text.
-                  bgcolor: "success.main",
-                  color: "#ffffff",
-                  "&:hover": { bgcolor: "success.dark" },
-                  "&.Mui-disabled": {
-                    bgcolor: "success.main",
-                    color: "#ffffff",
-                    opacity: 0.45,
-                  },
-                }}
-              >
-                Approve
-              </Button>
+              {rule.status !== "approved" && (
+                <>
+                  <Button
+                    size="small"
+                    color="error"
+                    startIcon={<CloseIcon />}
+                    onClick={onReject}
+                    disabled={busy}
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    startIcon={<CheckIcon />}
+                    onClick={onApprove}
+                    disabled={busy}
+                    sx={{
+                      // Matches the "Match" flag: success.main with white text.
+                      bgcolor: "success.main",
+                      color: "#ffffff",
+                      "&:hover": { bgcolor: "success.dark" },
+                      "&.Mui-disabled": {
+                        bgcolor: "success.main",
+                        color: "#ffffff",
+                        opacity: 0.45,
+                      },
+                    }}
+                  >
+                    Approve
+                  </Button>
+                </>
+              )}
             </>
           )}
         </Box>
@@ -258,18 +301,54 @@ function RuleCard({
       )}
 
       {!isEditing && rule.status === "approved" && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-          Approved by {rule.reviewed_by || "—"}
-          {rule.reviewed_at ? ` · ${new Date(rule.reviewed_at).toLocaleDateString()}` : ""}
-        </Typography>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 1,
+            mt: 1,
+          }}
+        >
+          <Typography variant="caption" color="text.secondary">
+            Approved by {rule.reviewed_by || "—"}
+            {rule.reviewed_at
+              ? ` · ${new Date(rule.reviewed_at).toLocaleDateString()}`
+              : ""}
+          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            <Typography variant="caption" color="text.secondary">
+              {rule.enabled === false ? "Off" : "On"}
+            </Typography>
+            <Tooltip title="Run this rule on new claims">
+              <Switch
+                size="small"
+                checked={rule.enabled !== false}
+                onChange={() => onToggleEnabled(rule)}
+                disabled={busy}
+                inputProps={{ "aria-label": "Run this rule on new claims" }}
+              />
+            </Tooltip>
+          </Box>
+        </Box>
       )}
     </Paper>
   );
 }
 
 function actionErrorMessage(err, fallback) {
+  const status = err?.response?.status;
   const detail = err?.response?.data?.message;
-  return typeof detail === "string" && detail.trim() ? detail : fallback;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  // A 404 here usually means the deployed API is older than the UI.
+  if (status === 404) {
+    return "This action is not available on the running API yet. Deploy the latest backend and try again.";
+  }
+  if (status === 403) {
+    return "Your account cannot change guideline rules. An Admin or Developer role is required.";
+  }
+  if (status) return `${fallback} (HTTP ${status})`;
+  return fallback;
 }
 
 function RuleReview() {
@@ -284,8 +363,12 @@ function RuleReview() {
   const [editingRuleId, setEditingRuleId] = useState(null);
   const [draft, setDraft] = useState(null);
   const [rejectRuleId, setRejectRuleId] = useState(null);
+  const [deleteRuleId, setDeleteRuleId] = useState(null);
   const [rejectNote, setRejectNote] = useState("");
   const [page, setPage] = useState(1);
+  // Browsers ignore a fragment-only change on an already-loaded PDF, so the
+  // viewer is remounted on every source click. The nonce makes the key unique.
+  const [viewerNonce, setViewerNonce] = useState(0);
   const [docUrl, setDocUrl] = useState(null);
   const [notice, setNotice] = useState(null);
   const [actionError, setActionError] = useState(null);
@@ -388,6 +471,35 @@ function RuleReview() {
     }
   };
 
+  const handleToggleEnabled = async (rule) => {
+    const nextEnabled = rule.enabled === false;
+    setBusyRuleId(rule.rule_id);
+    setActionError(null);
+    try {
+      const updated = await guidelineService.setRuleEnabled(
+        packId,
+        rule.rule_id,
+        nextEnabled,
+      );
+      updateRule(rule.rule_id, {
+        ...updated,
+        enabled: updated?.enabled ?? nextEnabled,
+      });
+      setNotice(
+        nextEnabled
+          ? "Rule turned on. It runs on the next claim."
+          : "Rule turned off. It will not run on the next claim.",
+      );
+    } catch (err) {
+      console.error("Error toggling rule:", err);
+      setActionError(
+        actionErrorMessage(err, "Could not change this rule's run state."),
+      );
+    } finally {
+      setBusyRuleId(null);
+    }
+  };
+
   const handleReject = (rule) => {
     setRejectRuleId(rule.rule_id);
     setRejectNote("");
@@ -415,6 +527,31 @@ function RuleReview() {
     } catch (err) {
       console.error("Error rejecting rule:", err);
       setActionError(actionErrorMessage(err, "Could not reject this rule."));
+    } finally {
+      setBusyRuleId(null);
+    }
+  };
+
+  const handleDelete = (rule) => {
+    setDeleteRuleId(rule.rule_id);
+    setActionError(null);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteRuleId) return;
+    const ruleId = deleteRuleId;
+    setBusyRuleId(ruleId);
+    setActionError(null);
+    try {
+      await guidelineService.deleteRule(packId, ruleId);
+      setRules((prev) => prev.filter((rule) => rule.rule_id !== ruleId));
+      setEditingRuleId(null);
+      setDraft(null);
+      setDeleteRuleId(null);
+      setNotice("Rule deleted. It will not be included in this pack.");
+    } catch (err) {
+      console.error("Error deleting rule:", err);
+      setActionError(actionErrorMessage(err, "Could not delete this rule."));
     } finally {
       setBusyRuleId(null);
     }
@@ -497,12 +634,20 @@ function RuleReview() {
     }
   };
 
+  /** Open the guideline PDF in its own tab, at the cited page. */
+  const openGuidelineInNewTab = () => {
+    if (docUrl) {
+      const suffix = page > 1 ? `#page=${page}` : "";
+      window.open(`${docUrl}${suffix}`, "_blank", "noopener,noreferrer");
+    }
+  };
   const handleOpenSource = (targetPage) => {
     if (!targetPage) {
-      setNotice("This rule has no verified page yet — it is assigned when the PDF is ingested.");
+      setNotice("This rule has no verified page yet - it is assigned when the PDF is ingested.");
       return;
     }
     setPage(targetPage);
+    setViewerNonce((value) => value + 1);
   };
 
   if (loading) {
@@ -591,17 +736,32 @@ function RuleReview() {
         >
           <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
             <Typography variant="subtitle2">Guideline source</Typography>
-            <Typography variant="caption" color="text.secondary">
-              Page {page}
-            </Typography>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Typography variant="caption" color="text.secondary">
+                Page {page}
+              </Typography>
+              <Tooltip title={docUrl ? "Open in new tab" : "PDF not available yet"}>
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={openGuidelineInNewTab}
+                    disabled={!docUrl}
+                    sx={{ color: "text.secondary" }}
+                    aria-label="Open guideline PDF in a new tab"
+                  >
+                    <OpenInNewIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </Box>
           </Box>
           <Divider sx={{ mb: 1 }} />
-          <Box sx={{ flex: 1, overflow: "auto" }}>
+          <Box sx={{ flex: 1, overflow: "auto", minHeight: 0 }}>
             {docUrl ? (
-              <iframe
-                title="Guideline source"
-                src={`${docUrl}#page=${page}`}
-                style={{ width: "100%", height: "100%", border: 0 }}
+              <PDFViewer
+                key={`${docUrl}-${viewerNonce}`}
+                file={docUrl}
+                page={page}
               />
             ) : (
               <Box
@@ -693,7 +853,9 @@ function RuleReview() {
               onSave={handleSaveEdit}
               onApprove={() => handleApprove(rule)}
               onReject={() => handleReject(rule)}
+              onDelete={() => handleDelete(rule)}
               onOpenSource={handleOpenSource}
+              onToggleEnabled={handleToggleEnabled}
             />
             ))
           )}
@@ -726,6 +888,42 @@ function RuleReview() {
             onClick={confirmReject}
           >
             Reject rule
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(deleteRuleId)}
+        onClose={() => setDeleteRuleId(null)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Delete rule</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Deleting removes the rule from this pack permanently; it cannot be
+            restored. If the wording is only wrong for this version, retire the pack
+            instead so the history stays intact.
+          </Typography>
+          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+            {rules.find((rule) => rule.rule_id === deleteRuleId)?.question ||
+              deleteRuleId}
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button
+            onClick={() => setDeleteRuleId(null)}
+            disabled={Boolean(busyRuleId)}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={confirmDelete}
+            disabled={Boolean(busyRuleId)}
+          >
+            Delete rule
           </Button>
         </DialogActions>
       </Dialog>

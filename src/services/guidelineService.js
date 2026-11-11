@@ -97,6 +97,30 @@ const guidelineService = {
     return response.data.rule;
   },
 
+  /** Delete one rule from a draft or in-review pack. */
+  async deleteRule(packId, ruleId) {
+    if (USE_FIXTURES) {
+      return { pack_id: packId, rule_id: ruleId, deleted: true };
+    }
+    const response = await axiosInstance.delete(
+      `/guideline_rules/${encodeURIComponent(ruleId)}`,
+      { params: { pack_id: packId } },
+    );
+    return response.data.deleted;
+  },
+
+  /** Turn one approved rule on or off for future claims. */
+  async setRuleEnabled(packId, ruleId, enabled) {
+    if (USE_FIXTURES) {
+      return { rule_id: ruleId, enabled, status: "approved" };
+    }
+    const response = await axiosInstance.patch(
+      `/guideline_rules/${encodeURIComponent(ruleId)}/enabled`,
+      { pack_id: packId, enabled },
+    );
+    return response.data.rule;
+  },
+
   /** Publish a fully reviewed pack. Returns the published pack and superseded ids. */
   async publishPack(packId) {
     if (USE_FIXTURES) {
@@ -116,6 +140,21 @@ const guidelineService = {
       `/guideline_packs/${encodeURIComponent(packId)}/retire`,
     );
     return response.data.pack;
+  },
+
+  /**
+   * Delete a pack with its rules, overrides and stored PDF. Irreversible, so the
+   * pack id is sent as the confirmation token the server requires.
+   */
+  async deletePack(packId) {
+    if (USE_FIXTURES) {
+      return { pack_id: packId, deleted_files: [] };
+    }
+    const response = await axiosInstance.delete(
+      `/guideline_packs/${encodeURIComponent(packId)}`,
+      { data: { confirm: packId } },
+    );
+    return response.data.deleted || {};
   },
 
   /** Record an override with a reason. Returns the refreshed result, or null offline. */

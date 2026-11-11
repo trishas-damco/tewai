@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "prebuild": "node scripts/check-jsx-imports.mjs src",
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",

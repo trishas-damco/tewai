@@ -6,6 +6,11 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
   Paper,
   Snackbar,
   Table,
@@ -20,12 +25,13 @@ import {
 } from "@mui/material";
 import {
   Add as AddIcon,
+  DeleteOutline as DeleteOutlineIcon,
   Refresh as RefreshIcon,
 } from "@mui/icons-material";
 import guidelineService from "../../services/guidelineService";
+import UploadGuidelineDialog from "./UploadGuidelineDialog";
 
 const LIVE = import.meta.env.VITE_GUIDELINE_API === "live";
-import UploadGuidelineDialog from "./UploadGuidelineDialog";
 
 const STATUS_LABELS = {
   draft: "Draft",
@@ -80,6 +86,10 @@ function GuidelineLibrary() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [createdPack, setCreatedPack] = useState(null);
   const [drafting, setDrafting] = useState({});
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
+  const [notice, setNotice] = useState(null);
 
   /** A pack is processing while this session drafts it, or while the server says so. */
   const isProcessing = (pack) =>
@@ -126,6 +136,29 @@ function GuidelineLibrary() {
     [packs],
   );
 
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const pack = deleteTarget;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const result = await guidelineService.deletePack(pack.pack_id);
+      setPacks((prev) => prev.filter((item) => item.pack_id !== pack.pack_id));
+      setDeleteTarget(null);
+      setNotice(
+        `Deleted ${pack.carrier_name} ${pack.version_label}. ` +
+          `${result?.deleted_rules ?? 0} rule(s) and ${result?.deleted_files?.length ?? 0} file(s) removed.`,
+      );
+    } catch (err) {
+      console.error("Error deleting guideline pack:", err);
+      setDeleteError(
+        err?.response?.data?.message ||
+          "Could not delete this pack. Please try again.",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
   const openReview = (pack) => {
     navigate(`/guideline-library/${pack.pack_id}/review`);
   };
@@ -330,6 +363,22 @@ function GuidelineLibrary() {
                       >
                         {isProcessing(pack) ? "Processing…" : "Open review"}
                       </Button>
+                      <Tooltip title="Delete this pack and its stored PDF">
+                        <span>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => {
+                              setDeleteError(null);
+                              setDeleteTarget(pack);
+                            }}
+                            disabled={deleting}
+                            aria-label={`Delete ${pack.carrier_name} ${pack.version_label}`}
+                          >
+                            <DeleteOutlineIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -355,6 +404,46 @@ function GuidelineLibrary() {
         onCreate={(input) => guidelineService.createPack(input)}
       />
 
+      <Dialog
+        open={Boolean(deleteTarget)}
+        onClose={deleting ? undefined : () => setDeleteTarget(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Delete guideline pack?</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            <strong>{deleteTarget?.carrier_name}</strong>
+            {deleteTarget?.version_label ? ` · version ${deleteTarget.version_label}` : ""}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            This permanently removes the pack, its {deleteTarget?.rule_count ?? 0} rule(s),
+            any overrides recorded against it, and the stored PDF.
+          </Typography>
+          <Typography variant="body2" color="error">
+            This cannot be undone. Claims already checked keep their stored results.
+          </Typography>
+          {deleteError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {deleteError}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setDeleteTarget(null)} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={confirmDelete}
+            disabled={deleting}
+          >
+            {deleting ? "Deleting…" : "Delete pack"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Snackbar
         open={Boolean(createdPack)}
         autoHideDuration={6000}
@@ -365,6 +454,17 @@ function GuidelineLibrary() {
           Draft pack created for {createdPack?.carrier_name}
           {createdPack?.version_label ? ` · version ${createdPack.version_label}` : ""}. Open
           it to draft and review the rules.
+        </Alert>
+      </Snackbar>
+
+      <Snackbar
+        open={Boolean(notice)}
+        autoHideDuration={6000}
+        onClose={() => setNotice(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert severity="success" onClose={() => setNotice(null)} sx={{ width: "100%" }}>
+          {notice}
         </Alert>
       </Snackbar>
     </Box>
