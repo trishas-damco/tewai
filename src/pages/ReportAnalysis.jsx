@@ -16,6 +16,12 @@ import {
   DialogContent,
   DialogActions,
   Tooltip,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableContainer,
   useMediaQuery,
 } from '@mui/material';
 import {
@@ -34,6 +40,8 @@ import GenerateGuidanceReport from '../components/GenerateGuidanceReport';
 import SuccessPopup from '../components/SuccessPopup';
 import { UserRoleContext } from '../components/layout/AuthLayout';
 import { useTheme } from '@mui/material/styles';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const FlagType = {
   MATCH: 'Match',
@@ -41,6 +49,55 @@ const FlagType = {
   RAISE: 'Raise',
   NO_FLAG: 'No flag',
 };
+
+/** Render GFM tables as MUI tables; wide tables scroll inside the narrow analysis panel. */
+const markdownComponents = {
+  table: ({ children }) => (
+    <TableContainer
+      component={Paper}
+      variant="outlined"
+      sx={{ my: 1, maxWidth: '100%', overflowX: 'auto' }}
+    >
+      <Table size="small">{children}</Table>
+    </TableContainer>
+  ),
+  thead: ({ children }) => <TableHead>{children}</TableHead>,
+  tbody: ({ children }) => <TableBody>{children}</TableBody>,
+  tr: ({ children }) => <TableRow>{children}</TableRow>,
+  th: ({ children, style }) => (
+    <TableCell sx={{ fontWeight: 'bold', fontSize: 'inherit', ...style }}>
+      {children}
+    </TableCell>
+  ),
+  td: ({ children, style }) => (
+    <TableCell sx={{ fontSize: 'inherit', ...style }}>{children}</TableCell>
+  ),
+};
+
+/**
+ * Rule answer text rendered as Markdown (bold, italic, lists, tables).
+ * Raw HTML stays disabled; paragraphs keep ``pre-wrap`` so existing plain-text
+ * answers with single line breaks look unchanged.
+ */
+function MarkdownAnswer({ text, sx }) {
+  return (
+    <Typography
+      component="div"
+      variant="body2"
+      sx={{
+        '& p': { whiteSpace: 'pre-wrap', m: 0 },
+        '& p + p': { mt: 1 },
+        '& ul, & ol': { my: 0.5, pl: 3 },
+        '& code': { fontFamily: 'monospace' },
+        ...sx,
+      }}
+    >
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        {text || ''}
+      </ReactMarkdown>
+    </Typography>
+  );
+}
 
 const getFlagColor = (flag, theme) => {
   switch (flag) {
@@ -807,16 +864,13 @@ function ReportAnalysis({ reportId, prelim_folder, pdfUrl, ruleBookModel, onPage
                           />
                         ) : (
                           <>
-                            <Typography
-                              variant="body2"
+                            <MarkdownAnswer
+                              text={item.descriptionKey}
                               sx={{
-                                whiteSpace: 'pre-wrap',
                                 mb: pages.length ? 0.5 : 1,
                                 fontSize: { xs: '0.75rem', sm: '0.875rem' },
                               }}
-                            >
-                              {item.descriptionKey}
-                            </Typography>
+                            />
 
                             {isOpeningStatementAnalysisRow(item) &&
                               !isOpeningStatementMatchFlag(item) &&
