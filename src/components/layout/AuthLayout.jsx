@@ -146,6 +146,7 @@ function AuthLayout({ children }) {
           component="main"
           sx={{
             flexGrow: 1,
+            minWidth: 0, // let wide content (e.g. tables) scroll instead of widening the page
             ml: '24px',
             pt: '64px', // Header height
             pb: '56px', // Footer height
